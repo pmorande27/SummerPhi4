@@ -2,7 +2,8 @@ import numpy as np
 from lattice import Lattice
 
 
-def calibration( N, lambda_, width_guess):
+def calibration( N, lambda_, width_guess,HMC,  N_steps_guess=0):
+
 
     accel = False
     print('Calibration with lambda = ' + str(lambda_) + " N = " +str(N) )
@@ -11,36 +12,75 @@ def calibration( N, lambda_, width_guess):
     max_count = 10
     results = [0 for i in range(max_count)]
     width = width_guess
+    if not HMC:
+        for i in range(max_count):
+            calibration_runs = 10**2
+            N_measurements = 0
+            N_thermalization = 0
+            lat = Lattice( N, lambda_, N_measurements, N_thermalization,width,False)
+            rate = lat.calibration_runs(calibration_runs, 100)
+            
+            
+            results[i] = (rate-up,width)
+            print(rate,width)
+            
 
-    for i in range(max_count):
-        calibration_runs = 10**2
-        N_measurements = 0
-        N_thermalization = 0
-        lat = Lattice( N, lambda_, N_measurements, N_thermalization,width)
-        rate = lat.calibration_runs(calibration_runs, 100)
-        
-        
-        results[i] = (rate-up,width)
-        print(rate,width)
-        
+            if rate <=up and rate >= low:
+                if accel == False:
+                    file_name = "Parameters/Calibration parameters lambda = " + str(lambda_) + " N = " + str(N)
+                else:
+                    file_name = "Parameters/Calibration parameters lambda = " + str(lambda_) + " N = " + str(N) + " Accel"
+                print("-----------------")
+                np.save(file_name, [width])
+                return width
+            
+            else:
+                new_width = width
+                if rate > up:
+                    new_width *= 2
+                else:
+                    new_width *=    0.5
+            
+            width = new_width
+    else:
+        N_tau = N_steps_guess
+        epsilon = 1/(N_tau*100000)
+        width = 0
+        print('Calibration with beta = ' + str(lambda_) + " N = " +str(N)+ " N_tau = " + str(N_tau))
+        up = 0.95
+        low = 0.75
+        max_count = 10
+        results = [0 for i in range(max_count)]
+        for i in range(max_count):
+            epsilon = 1/(N_tau)
+            print(epsilon)
+            calibration_runs = 10**3
+            lat = Lattice(N, lambda_,0,0,width, HMC, epsilon,N_tau)
+            lat.calibration_runs(1000, 1000)
+            rate = lat.accepted/calibration_runs
+            d_rate = 0.75-rate
+            results[i] = (rate-up,N_tau)
+            print(rate,N_tau)
+            
 
-        if rate <=up and rate >= low:
-            if accel == False:
-                file_name = "Parameters/Calibration parameters lambda = " + str(lambda_) + " N = " + str(N)
-            else:
-                file_name = "Parameters/Calibration parameters lambda = " + str(lambda_) + " N = " + str(N) + " Accel"
-            print("-----------------")
-            np.save(file_name, [width])
-            return width
-        
-        else:
-            new_width = width
-            if rate > up:
-                new_width *= 2
-            else:
-                new_width *=    0.5
-        
-        width = new_width
+            new_N = int(np.rint(N_tau*(1+d_rate)))
+            if rate <=up and rate >= low:
+                if accel == False:
+                    file_name = "Parameters/Calibration parameters lambda = " + str(lambda_) + " N = " + str(N) + str(" HMC")
+                else:
+                    file_name = "Parameters/Calibration parameters lambda = " + str(lambda_) + " N = " + str(N) + " HMC Accel"
+                np.save(file_name, [N_tau,1/N_tau])
+                print("-----------------")
+                print(rate, N_tau)
+                return N_tau
+            if new_N == N_tau:
+                if d_rate <0:
+                    new_N -= 1
+                else:
+                    new_N +=1
+            
+            N_tau = new_N
+
        
 
     print("-----------------")

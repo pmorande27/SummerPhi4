@@ -2,7 +2,7 @@ import numpy as np
 from alive_progress import alive_bar
 
 class Lattice(object):
-    def __init__(self, N, lambda_, N_measurements, N_thermalization, width):
+    def __init__(self, N, lambda_, N_measurements, N_thermalization, width, HMC= False, epsilon=0, N_steps=0):
         self.width = width
         
         self.lambda_ = lambda_
@@ -10,25 +10,18 @@ class Lattice(object):
         self.lattice = np.zeros((N,N,N,N))
         self.N_thermalization = N_thermalization
         self.N_measurements = N_measurements
+        self.HMCs = HMC
+        if HMC:
+            self.epsilon = epsilon
+            self.N_steps = N_steps
         self.accepted = 0
         self.randomize()
         #print(self.action())
         self.thermalize()
 
-    def derivative(self,axis):
-        foward = np.roll(self.lattice,-1,axis=axis)
-        return (foward-self.lattice)
-    
-    def second_derivative(self,axis):
-        foward = np.roll(self.lattice,-1,axis=axis)
-        backward = np.roll(self.lattice,1,axis=axis)
-        return (foward-2*self.lattice+backward)
-    
-    def laplacian(self):
-        return self.second_derivative(0)+self.second_derivative(1)+self.second_derivative(2)+self.second_derivative(3)
+   
     def action(self):
-
-        return -1/(2*self.lambda_)*np.sum((self.laplacian()+self.derivative(0)**2+self.derivative(1)**2+self.derivative(2)**2+self.derivative(3)**2)**2)
+        return 1/(2*np.abs(self.lambda_))*np.sum(self.I(self.lattice)**2 )
     
     def metropolis(self,i,j,k,l):
         x = i
@@ -57,7 +50,10 @@ class Lattice(object):
         print("Thermalizing")
         with alive_bar(self.N_thermalization) as bar:
             for i in range(self.N_thermalization):
-                self.sweep()
+                if self.HMCs:
+                    self.HMC(self.N_steps, self.epsilon)
+                else:
+                    self.sweep()
                 bar()
         print("Thermalization Complete----------------")
       
@@ -66,7 +62,10 @@ class Lattice(object):
         print("Generating Measurements")
         with alive_bar(self.N_measurements) as bar:
             for i in range(self.N_measurements):
-                self.sweep()
+                if self.HMCs:
+                    self.HMC(self.N_steps, self.epsilon)
+                else:
+                    self.sweep()
                 results[i] = observable(self.lattice)
                 bar()
         print("Measurements Complete----------------")
@@ -79,13 +78,19 @@ class Lattice(object):
     def calibration_runs(self,calibration_runs, thermal_runs):
         with alive_bar(thermal_runs) as bar:
             for i in range(thermal_runs):
-                 self.sweep()
-                 bar()
+                if self.HMCs:
+                    self.HMC(self.N_steps, self.epsilon)
+                else:
+                    self.sweep()
+                bar()
         self.accepted = 0
         with alive_bar(calibration_runs) as bar:
 
             for i in range(calibration_runs):
-                self.sweep()
+                if self.HMCs:
+                    self.HMC(self.N_steps, self.epsilon)
+                else:
+                    self.sweep()
                 bar()
         return self.accepted/(calibration_runs*self.N**4)
 
@@ -150,41 +155,19 @@ class Lattice(object):
     def HMC(self, N_steps, epsilon):
         p = np.random.normal(size=(self.N,self.N,self.N,self.N))
         H = self.action() + np.sum(p**2)/2
+        #print(self.action(),np.sum(p**2)/2,H)
         p_new, lattice_new = self.molecular_dynamics(N_steps, epsilon, p.copy(), self.lattice.copy())
         H_new = self.actions(lattice_new) + np.sum(p_new**2)/2
         delta_H = H_new - H
+        #print(self.actions(lattice_new), np.sum(p_new**2)/2)
+        #print(delta_H)
 
-        if np.random.rand() < np.exp(-delta_H):
+        if delta_H <0 or np.exp(-delta_H) > np.random.random():
+        
             self.lattice = lattice_new.copy()
             self.accepted += 1
 
         return self.lattice
-    
-     
-    def actions(self,lattice):
-
-        return -1/(2*self.lambda_)*np.sum((self.laplacians(lattice)+self.derivatives(0,lattice)**2+self.derivative(1,lattice)**2+self.derivative(2,lattice)**2+self.derivative(3,lattice)**2)**2)
-    
-    def derivatives(self,axis,lattice):
-        foward = np.roll(lattice,-1,axis=axis)
-        return (foward-self.lattice)
-    
-    def second_derivatives(self,axis,lattice):
-        foward = np.roll(lattice,-1,axis=axis)
-        backward = np.roll(lattice,1,axis=axis)
-        return (foward-2*lattice+backward)
-    
-    def laplacians(self,lattice):
-        return self.second_derivative(0,lattice)+self.second_derivative(1,lattice)+self.second_derivative(2,lattice)+self.second_derivative(3,lattice)
-    
-    def dot_p(self,lattice):
-        I = self.I(lattice)
-        result = 0
-        for i in range(4):
-            result += np.roll(I,-1,axis=i)*self.forwards(lattice,i) + np.roll(I,1,axis=i)*self.backwards(lattice,i) +I*self.centre(lattice,i)
-        return result
-           
-   
     def I(self,lattice):
         result = 0
         for i in range(4):
@@ -192,5 +175,20 @@ class Lattice(object):
             backward = np.roll(lattice,1,axis=i)
             result += forward + backward - 2*lattice - (forward-lattice)*(backward-lattice)
         return result 
+     
+    def actions(self,lattice):
+        return 1/(2*np.abs(self.lambda_))*np.sum(self.I(lattice)**2)
+    
+    
+    
+    def dot_p(self,lattice):
+        I = self.I(lattice)
+        result = 0
+        for i in range(4):
+            result += np.roll(I,-1,axis=i)*self.forwards(lattice,i) + np.roll(I,1,axis=i)*self.backwards(lattice,i) +I*self.centre(lattice,i)
+        return -1/np.abs(self.lambda_)*result
+           
+   
+    
     
     
