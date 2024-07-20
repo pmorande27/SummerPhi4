@@ -2,14 +2,19 @@ import numpy as np
 from alive_progress import alive_bar
 
 class Lattice(object):
-    def __init__(self, N, lambda_, N_measurements, N_thermalization, width, HMC= False, epsilon=0, N_steps=0):
+    def __init__(self, N, lambda_, N_measurements, N_thermalization, width, HMC= False, epsilon=0, N_steps=0,dim =4):
         self.width = width
         
         self.lambda_ = lambda_
         self.N = N
-        self.lattice = np.zeros((N,N,N,N))
         self.N_thermalization = N_thermalization
         self.N_measurements = N_measurements
+        self.dim = dim
+        self.shape = [N for i in range(dim)]
+        self.lattice = np.zeros(shape=self.shape)
+        self.dhs = np.zeros(N_measurements)
+
+
         self.HMCs = HMC
         if HMC:
             self.epsilon = epsilon
@@ -17,7 +22,13 @@ class Lattice(object):
         self.accepted = 0
         self.randomize()
         #print(self.action())
-        self.thermalize()
+        #for i in range(100):
+            #self.HMC(10,0.0001,True)
+        #self.lattice = np.ones(shape=self.shape)
+        #self.lattice = np.array([[1,2],[3,4]])
+        if self.N_thermalization > 0:
+            self.thermalize()
+        #print(self.lattice)
 
    
     def action(self):
@@ -63,12 +74,12 @@ class Lattice(object):
         with alive_bar(self.N_measurements) as bar:
             for i in range(self.N_measurements):
                 if self.HMCs:
-                    self.HMC(self.N_steps, self.epsilon)
+                    self.dhs[i] = np.exp(-self.HMC(self.N_steps, self.epsilon))
                 else:
                     self.sweep()
                 results[i] = observable(self.lattice)
                 bar()
-        print("Measurements Complete----------------")
+        print("Measurements Complete----------------",np.average(self.dhs))
         
         return results
     
@@ -76,6 +87,7 @@ class Lattice(object):
     def randomize(self):
         self.lattice = np.random.normal(size=(self.N,self.N,self.N,self.N))
     def calibration_runs(self,calibration_runs, thermal_runs):
+        dHs = np.zeros(calibration_runs)
         with alive_bar(thermal_runs) as bar:
             for i in range(thermal_runs):
                 if self.HMCs:
@@ -88,11 +100,14 @@ class Lattice(object):
 
             for i in range(calibration_runs):
                 if self.HMCs:
-                    self.HMC(self.N_steps, self.epsilon)
+                    dHs[i] = np.exp(-self.HMC(self.N_steps, self.epsilon))
                 else:
                     self.sweep()
                 bar()
-        return self.accepted/(calibration_runs*self.N**4)
+        if self.HMCs:
+            return self.accepted/calibration_runs
+        else:
+            return self.accepted/(calibration_runs*self.N**4)
 
     def measure_difference(lattice):
         """ N = len(lattice)
@@ -132,48 +147,54 @@ class Lattice(object):
         return np.sum(lattice)/(len(lattice)**4)
     
     def backwards(self,lattice,axis):
-        result = (1+np.roll(lattice,1,axis)+np.roll(np.roll(lattice,1,axis),1,axis))
+        result = (1+2*lattice-2*np.roll(lattice,1,axis))
         return result
     
     def forwards(self,lattice,axis):
-        result = (1+np.roll(lattice,-1,axis)+np.roll(np.roll(lattice,-1,axis),-1,axis))
+        result = 1
         return result
     def centre(self,lattice,axis):
-        return np.roll(lattice,1,axis)+np.roll(lattice,-1,axis) -2*lattice
+        return 2*lattice-2-2*np.roll(lattice,-1,axis)
     def molecular_dynamics(self, N_steps, epsilon,p_0,phi_0):
         
         p = p_0 + epsilon/2*self.dot_p(phi_0)
-        phi = phi_0 + epsilon*p
-        
-        for i in range(N_steps-1):
-            p = p + epsilon*self.dot_p(phi)
+        max_p = np.max(p)
+        phi = phi_0.copy()
+        for i in range(N_steps):
             phi = phi + epsilon*p
-        
-        p = p + epsilon/2*self.dot_p(phi)
+            if i == N_steps-1:
+                p = p + epsilon/2*self.dot_p(phi)
+            else:
+                p = p + epsilon*self.dot_p(phi)
+            max_p = np.max(p)
         return p,phi        
     
-    def HMC(self, N_steps, epsilon):
-        p = np.random.normal(size=(self.N,self.N,self.N,self.N))
+    def HMC(self, N_steps, epsilon,flag = False):
+        p = np.random.normal(size=self.shape)
+        #p= np.zeros(self.shape)
+        #p = np.ones(self.shape)
         H = self.action() + np.sum(p**2)/2
         #print(self.action(),np.sum(p**2)/2,H)
         p_new, lattice_new = self.molecular_dynamics(N_steps, epsilon, p.copy(), self.lattice.copy())
         H_new = self.actions(lattice_new) + np.sum(p_new**2)/2
         delta_H = H_new - H
         #print(self.actions(lattice_new), np.sum(p_new**2)/2)
-        #print(delta_H)
 
         if delta_H <0 or np.exp(-delta_H) > np.random.random():
         
             self.lattice = lattice_new.copy()
             self.accepted += 1
+        if flag:
+            self.lattice = lattice_new.copy()
 
-        return self.lattice
+
+        return delta_H
     def I(self,lattice):
         result = 0
-        for i in range(4):
+        for i in range(self.dim):
             forward = np.roll(lattice,-1,axis=i)
             backward = np.roll(lattice,1,axis=i)
-            result += forward + backward - 2*lattice - (forward-lattice)*(backward-lattice)
+            result += forward + backward - 2*lattice + (forward-lattice)**2
         return result 
      
     def actions(self,lattice):
@@ -184,8 +205,11 @@ class Lattice(object):
     def dot_p(self,lattice):
         I = self.I(lattice)
         result = 0
-        for i in range(4):
-            result += np.roll(I,-1,axis=i)*self.forwards(lattice,i) + np.roll(I,1,axis=i)*self.backwards(lattice,i) +I*self.centre(lattice,i)
+        for i in range(self.dim):
+            Fow = np.roll(I,-1,axis=i)
+            Back = np.roll(I,1,axis=i)*(1+2*lattice-2*np.roll(lattice,1,i))
+            cent = I*(2*lattice-2-2*np.roll(lattice,-1,i))
+            result += Fow + Back + cent
         return -1/np.abs(self.lambda_)*result
            
    

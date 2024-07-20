@@ -44,7 +44,7 @@ def calibration( N, lambda_, width_guess,HMC,  N_steps_guess=0):
             width = new_width
     else:
         N_tau = N_steps_guess
-        epsilon = 1/(N_tau*100000)
+        epsilon = 1/(N_tau)
         width = 0
         print('Calibration with beta = ' + str(lambda_) + " N = " +str(N)+ " N_tau = " + str(N_tau))
         up = 0.95
@@ -53,14 +53,13 @@ def calibration( N, lambda_, width_guess,HMC,  N_steps_guess=0):
         results = [0 for i in range(max_count)]
         for i in range(max_count):
             epsilon = 1/(N_tau)
-            print(epsilon)
             calibration_runs = 10**3
             lat = Lattice(N, lambda_,0,0,width, HMC, epsilon,N_tau)
             lat.calibration_runs(1000, 1000)
             rate = lat.accepted/calibration_runs
             d_rate = 0.75-rate
             results[i] = (rate-up,N_tau)
-            print(rate,N_tau)
+            print(rate*100,N_tau)
             
 
             new_N = int(np.rint(N_tau*(1+d_rate)))
@@ -96,13 +95,22 @@ def calibration( N, lambda_, width_guess,HMC,  N_steps_guess=0):
         file_name = "ChiralParams/Chiral Calibration parameters lambda = " + str(lambda_) + " N = " + str(N)  + " Accel"
     np.save(file_name, [width])
     return width
-def load_calibration( N, lambda_ ,accel = False):
+def load_calibration( N, lambda_ ,HMC = False,accel = False):
     if accel == False:
         file_name = "Parameters/Calibration parameters lambda = " + str(lambda_) + " N = " + str(N) + ".npy"
     else:
         file_name = "Parameters/Calibration parameters lambda = " + str(lambda_) + " N = " + str(N) + " Accel.npy"
+    if HMC:
+        if accel == False:
+            file_name = "Parameters/Calibration parameters lambda = " + str(lambda_) + " N = " + str(N) + " HMC.npy"
+        else:
+            file_name = "Parameters/Calibration parameters lambda = " + str(lambda_) + " N = " + str(N) + " HMC Accel.npy"
     values = np.load(    file_name)
-    return values[0]
+    if HMC:
+        return values[0],values[1]
+    else:  
+
+        return values[0]
 
 
 def lookup(d_rate,N_tau,results):
@@ -135,7 +143,7 @@ def measure( N,lambda_, N_measure,N_thermal, observable, observable_name,accel =
 
 
 
-def measure_func_1D( N,lambda_,N_measure,N_thermal, observable, observable_name, accel =False):
+def measure_func_1D( N,lambda_,N_measure,N_thermal, observable, observable_name, HMC=False,accel =False):
     count = 0
     while True:
         try:
@@ -147,8 +155,13 @@ def measure_func_1D( N,lambda_,N_measure,N_thermal, observable, observable_name,
                 file_name = "Results/"+observable_name+"/"+observable_name+" lambda = " + str(lambda_) + " N = " + str(N) +" N measurements = "  + str(N_measure)+" N Thermal = "  + str(N_thermal)+'.npy'
             else:
                 file_name = "ChiralResults/"+observable_name+"/"+observable_name+" beta = " + str(lambda_) + " N = " + str(N)  + " N measurements = "  + str(N_measure)+" N Thermal = "  + str(N_thermal)+" Accel.npy"
-            width = load_calibration(N,lambda_,accel)
-            model = Lattice(N,lambda_,N_measure,N_thermal,width) 
+            if HMC:
+                N_tau,epsilon = load_calibration(N,lambda_,HMC,accel)
+                N_tau = int(N_tau)
+                model = Lattice(N,lambda_,N_measure,N_thermal,0,HMC,epsilon,N_tau)
+            else:    
+                width = load_calibration(N,lambda_,accel)
+                model = Lattice(N,lambda_,N_measure,N_thermal,width) 
             results = model.generate_measurements(observable)
 
         except (ValueError):
