@@ -2,6 +2,13 @@ import numpy as np
 from alive_progress import alive_bar
 
 class Lattice(object):
+    """
+    Class to represent a lattice and perform Monte Carlo simulations on it.
+    This can be used in the following way:
+    1. Create an instance of the class with the desired parameters. This will laso thermalize the lattice.
+    2. Generate measurements of an observable using the generate_measurements method.
+    3. Analyse the results of the measurements, using the Stats class (and the processing.py file)
+    """
 
 
     def __init__(self, N, lambda_, N_measurements, N_thermalization, width, HMC = False, epsilon = 0, N_steps = 0, dim = 4):
@@ -279,11 +286,12 @@ class Lattice(object):
         float, the change in Hamiltonian
         """
         p = np.random.normal(size=self.shape)
-        H = self.action() + np.sum(p**2)/2
-        p_new, lattice_new = self.molecular_dynamics(N_steps, epsilon, p.copy(), self.lattice.copy())
-        H_new = self.actions(lattice_new) + np.sum(p_new**2)/2
-        delta_H = H_new - H
+        H = self.action() + np.sum(p**2)/2 # compute the Hamiltonian
+        p_new, lattice_new = self.molecular_dynamics(N_steps, epsilon, p.copy(), self.lattice.copy()) # perform the molecular dynamics evolution
+        H_new = self.actions(lattice_new) + np.sum(p_new**2)/2 # compute the new Hamiltonian
+        delta_H = H_new - H # compute the change in Hamiltonian
 
+        # Metropolis acceptance step
         if delta_H <0 or np.exp(-delta_H) > np.random.random():
         
             self.lattice = lattice_new.copy()
