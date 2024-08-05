@@ -2,48 +2,70 @@ import numpy as np
 from alive_progress import alive_bar
 
 class Lattice(object):
+
+
     def __init__(self, N, lambda_, N_measurements, N_thermalization, width, HMC= False, epsilon=0, N_steps=0,dim =4):
+        """
+        Initialize the lattice with the given parameters.
+
+        Parameters:
+        N: int, number of sites in each dimension
+        lambda_: float, coupling constant
+        N_measurements: int, number of measurements to be taken
+        N_thermalization: int, number of thermalization sweeps
+        width: float, width of the gaussian used in the metropolis algorithm
+        HMC: bool, whether to use the Hamiltonian Monte Carlo algorithm or metropolis
+        epsilon: float, step size for HMC
+        N_steps: int, number of steps for HMC
+        dim: int, number of dimensions of the lattice
+        """
         self.width = width
-        
         self.lambda_ = lambda_
         self.N = N
         self.N_thermalization = N_thermalization
         self.N_measurements = N_measurements
         self.dim = dim
-        self.shape = [N for i in range(dim)]
-        self.lattice = np.zeros(shape=self.shape)
-        self.dhs = np.zeros(N_measurements)
+        self.shape = [N for i in range(dim)] # shape of the lattice in numpy (library) format
+        self.lattice = np.zeros(shape = self.shape) # initialize the lattice
+        self.dhs = np.zeros(N_measurements) # array to store the exponential of the change in Hamiltonian for each measurement (test purposes)
 
 
         self.HMCs = HMC
-        if HMC:
+        if HMC: # if HMC is True, initialize the HMC parameters
             self.epsilon = epsilon
-            self.N_steps = N_steps
-        self.accepted = 0
+            self.N_steps = int(N_steps)
+        
+        self.accepted = 0 # number of accepted configurations accepted
+        
+        # Hot start of the lattice
         self.randomize()
-        #print(self.action())
-        #for i in range(100):
-            #self.HMC(10,0.0001,True)
-        #self.lattice = np.ones(shape=self.shape)
-        #self.lattice = np.array([[1,2],[3,4]])
+
+       # Thermalize the lattice
         if self.N_thermalization > 0:
             self.thermalize()
-        #print(self.lattice)
 
    
     def action(self):
+        """
+        Compute the action of the lattice.
+        """
         return 1/(2*np.abs(self.lambda_))*np.sum(self.I(self.lattice)**2 )
     
     def metropolis(self,i,j,k,l):
+        """
+        Perform a metropolis update at site (i,j,k,l).
+        """
         x = i
         y = j
         z = k
         t = l
+
         old = self.lattice[x,y,z,t]
-        old_action = self.action()
-        self.lattice[x,y,z,t] += np.random.normal(0,self.width)
-        delta = self.action()-old_action
-        #print(delta)
+        old_action = self.action() #store old action
+        self.lattice[x,y,z,t] += np.random.normal(0,self.width) # propose a new configuration
+        delta = self.action()-old_action # compute the change in action
+        
+        # accept or reject the new configuration
         if np.random.rand() > np.exp(-delta):
             self.lattice[x,y,z,t] = old
         else:
@@ -51,42 +73,81 @@ class Lattice(object):
       
    
     def sweep(self):
+        """
+        Perform a sweep of the lattice using the metropolis algorithm, inefficent due to the loop over all sites.
+        """
         for i in range(self.N):
+
             for j in range(self.N):
+
                 for k in range(self.N):
+
                     for l in range(self.N):
 
                         self.metropolis(i,j,k,l)
     def thermalize(self):
+        """
+        Thermalize the lattice.
+        It uses the HMC algorithm if HMC is True, otherwise it uses the metropolis algorithm.
+        """
         print("Thermalizing")
-        with alive_bar(self.N_thermalization) as bar:
+        with alive_bar(self.N_thermalization) as bar: # this line just creates the progress bar, not important
             for i in range(self.N_thermalization):
+                
                 if self.HMCs:
+                
                     self.HMC(self.N_steps, self.epsilon)
+                
                 else:
+                
                     self.sweep()
-                bar()
+                
+                bar() # this line updates the progress bar, not important
+        
         print("Thermalization Complete----------------")
       
     def generate_measurements(self,observable):
-        results = [0 for i in range(self.N_measurements)]
+        """
+        Generate the measurements of the observable.
+        It uses the HMC algorithm if HMC is True, otherwise it uses the metropolis
+        algorithm.
+        attribute:
+        observable: function, the observable to be measured
+        """
+        results = [0 for i in range(self.N_measurements)] # Initialize the array to store the results of the measurements
         print("Generating Measurements")
-        with alive_bar(self.N_measurements) as bar:
+        
+        with alive_bar(self.N_measurements) as bar: # this line just creates the progress bar, not important
             for i in range(self.N_measurements):
+                
                 if self.HMCs:
-                    self.dhs[i] = np.exp(-self.HMC(self.N_steps, self.epsilon))
+
+                    self.dhs[i] = np.exp(-self.HMC(self.N_steps, self.epsilon)) # store the exponential of the change in Hamiltonian (testing purposes), it call HMC
                 else:
-                    self.sweep()
-                results[i] = observable(self.lattice)
-                bar()
-        print("Measurements Complete----------------",np.average(self.dhs))
+
+                    self.sweep() # perform a sweep if metropolis is used
+                
+                results[i] = observable(self.lattice) # store the result of the observable
+                
+                bar() # this line updates the progress bar, not important
+        print("Measurements Complete----------------",np.average(self.dhs)) # print the average of the exponential of the change in Hamiltonian, should be close to 1
         
         return results
     
     
     def randomize(self):
-        self.lattice = np.random.normal(size=(self.N,self.N,self.N,self.N))
+        """
+        Randomize the lattice.
+        """
+        
+        self.lattice = np.random.normal(size=self.shape)
+    
     def calibration_runs(self,calibration_runs, thermal_runs):
+        
+        """ Perform calibration runs to determine the acceptance rate of the HMC algorithm.
+        Used to tune the algorithms parameters
+        """
+
         dHs = np.zeros(calibration_runs)
         with alive_bar(thermal_runs) as bar:
             for i in range(thermal_runs):
@@ -109,7 +170,11 @@ class Lattice(object):
         else:
             return self.accepted/(calibration_runs*self.N**4)
 
-    def measure_difference(lattice):
+    def measure_difference(dim,lattice):
+        """
+        Measures (phi(x)-phi(y))^2
+        """
+        #Inefficient code first, then efficient code
         """ N = len(lattice)
         result = np.zeros((int(N/2),4,N,N,N,N))
         final = np.zeros((int(N/2)))
@@ -132,53 +197,74 @@ class Lattice(object):
         return final"""
        
         N = len(lattice)
-        result = np.zeros((int(N/2), 4, N, N, N, N))
+        shape = [int(N/2),dim] + [N for i in range(dim)]
+        result = np.zeros(shape)
+
+        #print(result.shape)
 
         for i in range(int(N/2)):
-            for j in range(4):
+            for j in range(dim):
                 shift = np.roll(lattice, i+1, axis=j)
                 result[i, j] =( lattice - shift)**2
         #print(result)
         #print(result)
-
-        final = np.sum(result, axis=(1,2, 3, 4, 5)) / (4 * N**4)
+        axis = tuple([i for i in range(2,dim+2)])
+        final = np.sum(result, axis=axis) / (dim * N**dim)
         return final
-    def measure_field(lattice):
-        return np.sum(lattice)/(len(lattice)**4)
+    def measure_field(dim,lattice):
+        """
+        Measures phi(x)
+        """
+        return np.sum(lattice)/(len(lattice)**dim)
     
     def backwards(self,lattice,axis):
+        """
+        Computes backward coefficient for the molecular dynamics evolution.
+        """
         result = (1+2*lattice-2*np.roll(lattice,1,axis))
         return result
     
     def forwards(self,lattice,axis):
+        """
+        Computes forward coefficient for the molecular dynamics evolution.
+        """
         result = 1
         return result
     def centre(self,lattice,axis):
+        """
+        Computes centre coefficient for the molecular dynamics evolution.
+        """
         return 2*lattice-2-2*np.roll(lattice,-1,axis)
     def molecular_dynamics(self, N_steps, epsilon,p_0,phi_0):
+
         
         p = p_0 + epsilon/2*self.dot_p(phi_0)
-        max_p = np.max(p)
         phi = phi_0.copy()
         for i in range(N_steps):
-            phi = phi + epsilon*p
+            phi +=  epsilon*p
             if i == N_steps-1:
-                p = p + epsilon/2*self.dot_p(phi)
+                p +=  epsilon/2*self.dot_p(phi)
             else:
-                p = p + epsilon*self.dot_p(phi)
-            max_p = np.max(p)
+                p += epsilon*self.dot_p(phi)
         return p,phi        
     
     def HMC(self, N_steps, epsilon,flag = False):
+        """
+        Perform a Hamiltonian Monte Carlo update.
+
+        Parameters:
+        N_steps: int, number of steps in the molecular dynamics evolution
+        epsilon: float, step size for the molecular dynamics evolution
+        flag: bool, test purposes used to always accept the new lattice if needed
+
+        Returns:
+        float, the change in Hamiltonian
+        """
         p = np.random.normal(size=self.shape)
-        #p= np.zeros(self.shape)
-        #p = np.ones(self.shape)
         H = self.action() + np.sum(p**2)/2
-        #print(self.action(),np.sum(p**2)/2,H)
         p_new, lattice_new = self.molecular_dynamics(N_steps, epsilon, p.copy(), self.lattice.copy())
         H_new = self.actions(lattice_new) + np.sum(p_new**2)/2
         delta_H = H_new - H
-        #print(self.actions(lattice_new), np.sum(p_new**2)/2)
 
         if delta_H <0 or np.exp(-delta_H) > np.random.random():
         
@@ -190,6 +276,15 @@ class Lattice(object):
 
         return delta_H
     def I(self,lattice):
+        """
+        Calculates the factor I(x) for the action and the dot_p function.
+
+        Parameters:
+        lattice: numpy array, the lattice
+
+        Returns:
+        numpy array, the factor I(x)
+        """
         result = 0
         for i in range(self.dim):
             forward = np.roll(lattice,-1,axis=i)
@@ -198,19 +293,38 @@ class Lattice(object):
         return result 
      
     def actions(self,lattice):
+        """
+        Compute the action of the lattice
+
+        Parameters:
+        lattice: numpy array, the lattice
+
+        Returns:
+        float, the action of the lattice
+        """
         return 1/(2*np.abs(self.lambda_))*np.sum(self.I(lattice)**2)
     
     
     
     def dot_p(self,lattice):
+        """
+        Compute the evolution of the momentum in the Hamiltonian Monte Carlo algorithm. dot p = -dS/dphi
+
+        Parameters:
+        lattice: numpy array, the lattice
+
+        Returns:
+        numpy array, the evolution of the momentum
+        """
+
         I = self.I(lattice)
         result = 0
         for i in range(self.dim):
-            Fow = np.roll(I,-1,axis=i)
-            Back = np.roll(I,1,axis=i)*(1+2*lattice-2*np.roll(lattice,1,i))
-            cent = I*(2*lattice-2-2*np.roll(lattice,-1,i))
-            result += Fow + Back + cent
-        return -1/np.abs(self.lambda_)*result
+            Foward = np.roll(I,-1,axis=i)
+            Backward = np.roll(I,1,axis=i)*(1+2*lattice-2*np.roll(lattice,1,i))
+            Centre = I*(2*lattice-2-2*np.roll(lattice,-1,i))
+            result += Foward + Backward + Centre
+        return -1/np.abs(self.lambda_)*result # return the evolution of the momentum, don't forget the minus sign
            
    
     

@@ -7,8 +7,8 @@ def calibration( N, lambda_, width_guess,HMC,  N_steps_guess=0):
 
     accel = False
     print('Calibration with lambda = ' + str(lambda_) + " N = " +str(N) )
-    up = 0.6
-    low = 0.2
+    up = 0.8
+    low = 0.4
     max_count = 10
     results = [0 for i in range(max_count)]
     width = width_guess
@@ -48,7 +48,7 @@ def calibration( N, lambda_, width_guess,HMC,  N_steps_guess=0):
         width = 0
         print('Calibration with beta = ' + str(lambda_) + " N = " +str(N)+ " N_tau = " + str(N_tau))
         up = 0.95
-        low = 0.75
+        low = 0.55
         max_count = 10
         results = [0 for i in range(max_count)]
         for i in range(max_count):
@@ -118,32 +118,7 @@ def lookup(d_rate,N_tau,results):
         if abs(x) == d_rate and y == N_tau:
             return x
         
-def measure( N,lambda_, N_measure,N_thermal, observable, observable_name,accel =False, mass = 0.1):
-    count = 0
-    while True:
-        try:
-            if count == 10:    
-                count = 0
-                print('Recalibration')
-                calibration(N,lambda_,1)
-            if accel == False:
-                file_name = "Results/"+observable_name+"/"+observable_name+" lambda = " + str(lambda_) + " N = " + str(N) +" N measurements = "  + str(N_measure)+" N Thermal = "  + str(N_thermal)+'.npy'
-            else:
-                file_name = "ChiralResults/"+observable_name+"/"+observable_name+" beta = " + str(lambda_) + " N = " + str(N)  + " N measurements = "  + str(N_measure)+" N Thermal = "  + str(N_thermal)+" Accel.npy"
-            width = load_calibration(N,lambda_,accel)
-            model = Lattice(N,lambda_,N_measure,N_thermal,width) 
-            results = model.generate_measurements(observable)
-
-        except (ValueError):
-            count+= 1
-            continue
-        break
-    #print(Stats(vals).estimate())
-    np.save(file_name,results)
-
-
-
-def measure_func_1D( N,lambda_,N_measure,N_thermal, observable, observable_name, HMC=False,accel =False):
+def measure( N,lambda_, N_measure,N_thermal, observable, observable_name,HMC = False,dim=4,accel =False, mass = 0.1):
     count = 0
     while True:
         try:
@@ -158,13 +133,47 @@ def measure_func_1D( N,lambda_,N_measure,N_thermal, observable, observable_name,
             if HMC:
                 N_tau,epsilon = load_calibration(N,lambda_,HMC,accel)
                 N_tau = int(N_tau)
-                model = Lattice(N,lambda_,N_measure,N_thermal,0,HMC,epsilon,N_tau)
-            else:    
+                model = Lattice(N,lambda_,N_measure,N_thermal,1,HMC,epsilon,N_tau,dim)
+            
+            else:
                 width = load_calibration(N,lambda_,accel)
-                model = Lattice(N,lambda_,N_measure,N_thermal,width) 
+                model = Lattice(N,lambda_,N_measure,N_thermal,width,False,0,0,dim) 
+
             results = model.generate_measurements(observable)
 
-        except (ValueError):
+        except (ValueError) as e:
+            print(e)
+            count+= 1
+            continue
+        break
+    #print(Stats(vals).estimate())
+    np.save(file_name,results)
+
+
+
+def measure_func_1D( N,lambda_,N_measure,N_thermal, observable, observable_name, HMC=False,dim=4,accel =False):
+    count = 0
+    while True:
+        try:
+            if count == 10:    
+                count = 0
+                print('Recalibration')
+                calibration(N,lambda_,1)
+            if accel == False:
+                file_name = "Results/"+observable_name+"/"+observable_name+" lambda = " + str(lambda_) + " N = " + str(N) +" N measurements = "  + str(N_measure)+" N Thermal = "  + str(N_thermal)+'.npy'
+            else:
+                file_name = "ChiralResults/"+observable_name+"/"+observable_name+" beta = " + str(lambda_) + " N = " + str(N)  + " N measurements = "  + str(N_measure)+" N Thermal = "  + str(N_thermal)+" Accel.npy"
+            if HMC:
+                N_tau,epsilon = load_calibration(N,lambda_,HMC,accel)
+                N_tau = int(N_tau)
+                model = Lattice(N,lambda_,N_measure,N_thermal,1,HMC,epsilon,N_tau,dim)
+            else:    
+                width = load_calibration(N,lambda_,accel)
+                model = Lattice(N,lambda_,N_measure,N_thermal,width,False,0,0,dim) 
+            results = model.generate_measurements(observable)
+
+        except (ValueError) as e:
+            print(e)
             count+= 1
             continue
         break
